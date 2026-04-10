@@ -1,0 +1,43 @@
+{
+  "name": "jsx-renderer",
+  "version": "1.0.0",
+  "description": "Render .jsx files and export to PDF on macOS",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.jsx-renderer.app",
+    "productName": "JSX Renderer",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "assets/**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "gif-encoder-2": "^1.0.5",
+    "pdf-lib": "^1.17.1",
+    "pngjs": "^7.0.0",
+    "pptxgenjs": "^4.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-is": "^18.3.1",
+    "recharts": "^2.15.4"
+  }
+}

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preview</title>
+
+    <!--
+      ALL LIBS LOADED FROM LOCAL DISK — zero CDN dependency.
+
+      Load order matters for UMD globals:
+        1. React      → window.React
+        2. ReactDOM   → window.ReactDOM
+        3. PropTypes  → window.PropTypes  (required by Recharts v2)
+        4. Recharts   → window.Recharts  = factory(React, PropTypes)
+        5. Babel      → window.Babel
+
+      Then Tailwind CDN (can be slow; only affects classes, not logic).
+    -->
+    <script src="vendor/react.js"></script>
+    <script src="vendor/react-dom.js"></script>
+    <script src="vendor/prop-types.js"></script>
+    <script src="vendor/recharts.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Tailwind CSS (no font override) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+      :root {
+        --error-bg: #1a0a0a;
+        --error-border: rgba(248,113,113,0.3);
+        --error-label: #fca5a5;
+        --mono: 'JetBrains Mono','Fira Code','SF Mono',monospace;
+      }
+      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+      html,body{
+        min-height:100%;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+        -webkit-font-smoothing:antialiased;
+        overflow-x:hidden;
+      }
+      #app-root{min-height:100vh}
+      #error-overlay{
+        display:none;position:fixed;inset:0;
+        background:var(--error-bg);z-index:9999;overflow:auto;padding:32px;
+      }
+      #error-overlay.visible{display:block}
+      .error-badge{
+        display:inline-flex;align-items:center;gap:8px;
+        background:rgba(248,113,113,0.15);border:1px solid var(--error-border);
+        border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;
+        color:var(--error-label);letter-spacing:.08em;text-transform:uppercase;margin-bottom:20px;
+      }
+      .error-title{font-size:20px;font-weight:600;color:var(--error-label);margin-bottom:16px;line-height:1.4;word-break:break-word}
+      .error-stack{
+        font-family:var(--mono);font-size:12px;color:rgba(248,113,113,.7);
+        line-height:1.7;white-space:pre-wrap;word-break:break-all;
+        background:rgba(0,0,0,.3);border:1px solid rgba(248,113,113,.1);
+        border-radius:8px;padding:16px;margin-top:12px;
+      }
+      .error-hint{margin-top:20px;font-size:13px;color:rgba(248,113,113,.5);font-style:italic;white-space:pre-wrap}
+      #loading-dot{
+        position:fixed;top:12px;right:12px;width:8px;height:8px;
+        border-radius:50%;background:#6e8efb;opacity:0;
+        transition:opacity .2s;box-shadow:0 0 10px #6e8efb;
+      }
+      #loading-dot.active{opacity:1;animation:blink .8s ease-in-out infinite}
+      @keyframes blink{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.5);opacity:.4}}
+    </style>
+  </head>
+  <body>
+    <div id="loading-dot"></div>
+    <div id="app-root"></div>
+    <div id="error-overlay"></div>
+
+    <script>
+      var appRoot   = document.getElementById('app-root');
+      var errorEl   = document.getElementById('error-overlay');
+      var loadingEl = document.getElementById('loading-dot');
+      var reactRoot = null;
+
+      // Diagnostics (visible in DevTools console of the webview)
+      console.log('[JSX Renderer Preview] React:', typeof React,
+        '| ReactDOM:', typeof ReactDOM,
+        '| PropTypes:', typeof PropTypes,
+        '| Recharts:', typeof Recharts,
+        typeof Recharts === 'object' ? '| RC.ResponsiveContainer: ' + typeof Recharts.ResponsiveContainer : '');
+
+      function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+      function showError(title,stack,hint){
+        errorEl.innerHTML=
+          '<div class="error-badge">&#9888; Render Error</div>'+
+          '<div class="error-title">'+esc(title)+'</div>'+
+          (stack?'<pre class="error-stack">'+esc(stack)+'</pre>':'')+
+          (hint?'<p class="error-hint">'+esc(hint)+'</p>':'');
+        errorEl.classList.add('visible');
+      }
+      function clearError(){errorEl.classList.remove('visible');errorEl.innerHTML=''}
+
+      // ── Error Boundary ────────────────────────────────────────────────────
+      class ErrorBoundary extends React.Component{
+        constructor(p){super(p);this.state={err:null}}
+        static getDerivedStateFromError(e){return{err:e}}
+        componentDidCatch(e){showError(e.message,e.stack,'Runtime error inside your component.')}
+        render(){return this.state.err?null:this.props.children}
+      }
+
+      // ── All known Recharts v2 exported names ──────────────────────────────
+      var RECHARTS_NAMES=[
+        'AreaChart','Area','BarChart','Bar','LineChart','Line',
+        'PieChart','Pie','Cell','RadarChart','Radar','PolarGrid',
+        'PolarAngleAxis','PolarRadiusAxis','RadialBarChart','RadialBar',
+        'ScatterChart','Scatter','ComposedChart',
+        'XAxis','YAxis','ZAxis','CartesianGrid','Tooltip','Legend',
+        'ResponsiveContainer','ReferenceLine','ReferenceDot','ReferenceArea',
+        'Brush','ErrorBar','FunnelChart','Funnel','Sector','Symbols',
+        'LabelList','Label','Customized','Cross','Curve','Dot','Rectangle','Text',
+        'Treemap','Sankey',
+      ];
+
+      function getRechartsScope(){
+        var scope={};
+        if(typeof Recharts==='object'&&Recharts!==null){
+          // Method 1: iterate known names explicitly
+          RECHARTS_NAMES.forEach(function(n){
+            if(Recharts[n]!==undefined) scope[n]=Recharts[n];
+          });
+          // Method 2: also grab anything via Object.keys (may catch extras)
+          try{
+            Object.keys(Recharts).forEach(function(k){ scope[k]=Recharts[k]; });
+          }catch(e){}
+        }
+        return scope;
+      }
+
+      // ── Pre-processor ─────────────────────────────────────────────────────
+      // Strips import statements; rewrites export declarations to plain
+      // variable/function declarations + __exports__ assignments.
+      // Babel only sees clean JSX script code — no module syntax.
+      function preprocess(src){
+        var defaultName=null;
+        var lines=src.split('\n');
+        var out=[];
+
+        for(var i=0;i<lines.length;i++){
+          var line=lines[i];
+
+          // import … / import '…'
+          if(/^\s*import[\s{*"']/.test(line)){
+            var buf=line;
+            while(i+1<lines.length&&!/['"][^'"]*['"];?\s*$/.test(buf.trim())){i++;buf+='\n'+lines[i]}
+            out.push('');
+            continue;
+          }
+
+          // export default function/class Name
+          var m1=line.match(/^(\s*)export\s+default\s+(async\s+)?(function\*?|class)\s+(\w+)/);
+          if(m1){defaultName=m1[4];out.push(line.replace(/export\s+default\s+/,''));continue}
+
+          // export default <expression>
+          var m2=line.match(/^(\s*)export\s+default\s+/);
+          if(m2){defaultName='__defaultExport__';out.push(line.replace(/export\s+default\s+/,'var __defaultExport__ = '));continue}
+
+          // export const/let/var/function/class Name
+          var m3=line.match(/^(\s*)export\s+(const|let|var|async\s+function|function\*?|function|class)\s+(\w+)/);
+          if(m3){
+            var vn=m3[3];
+            out.push(line.replace(/export\s+/,''));
+            out.push('if(typeof __exports__!=="undefined")__exports__["'+vn+'"]='+vn+';');
+            continue;
+          }
+
+          // export { foo, bar as baz }
+          var m4=line.match(/^(\s*)export\s*\{([^}]+)\}\s*;?/);
+          if(m4){
+            m4[2].split(',').forEach(function(n){
+              var p=n.trim().split(/\s+as\s+/),local=p[0].trim(),exp=(p[1]||p[0]).trim();
+              out.push('if(typeof __exports__!=="undefined")__exports__["'+exp+'"]='+local+';');
+            });
+            continue;
+          }
+
+          out.push(line);
+        }
+
+        if(defaultName){
+          out.push('\nif(typeof __exports__!=="undefined"&&typeof '+defaultName+'!=="undefined")__exports__["default"]='+defaultName+';');
+        }
+        return out.join('\n');
+      }
+
+      // ── Main render function ──────────────────────────────────────────────
+      window.renderJSX=function(jsxCode,filePath){
+        loadingEl.classList.add('active');
+        clearError();
+
+        setTimeout(function(){
+          try{
+            var preprocessed=preprocess(jsxCode);
+
+            var transformed=Babel.transform(preprocessed,{
+              presets:['react'],
+              filename:filePath||'component.jsx',
+              sourceType:'script',
+            });
+
+            var __exports__={};
+            var rechartsScope=getRechartsScope();
+
+            var scope=Object.assign({},rechartsScope,{
+              React:React,
+              useState:React.useState, useEffect:React.useEffect,
+              useCallback:React.useCallback, useMemo:React.useMemo,
+              useRef:React.useRef, useReducer:React.useReducer,
+              useContext:React.useContext, useLayoutEffect:React.useLayoutEffect,
+              useImperativeHandle:React.useImperativeHandle,
+              useDebugValue:React.useDebugValue, useId:React.useId,
+              createContext:React.createContext, forwardRef:React.forwardRef,
+              memo:React.memo, Fragment:React.Fragment,
+              Children:React.Children, cloneElement:React.cloneElement,
+              createElement:React.createElement, isValidElement:React.isValidElement,
+              module:{exports:{}}, exports:{},
+              __exports__:__exports__,
+              __defaultExport__:undefined,
+              // Make PropTypes available in case JSX file uses it
+              PropTypes:typeof PropTypes!=='undefined'?PropTypes:{},
+            });
+
+            var keys=Object.keys(scope);
+            var vals=keys.map(function(k){return scope[k]});
+            (new Function(keys.join(','),transformed.code)).apply(null,vals);
+
+            var Component=__exports__['default']||null;
+            if(!Component||typeof Component!=='function'){
+              var fb=Object.keys(__exports__).filter(function(k){return typeof __exports__[k]==='function'});
+              Component=fb.length>0?__exports__[fb[0]]:null;
+            }
+
+            if(!Component){
+              var rechartsStatus=typeof Recharts==='object'
+                ?'Recharts loaded ✓ ('+Object.keys(Recharts).length+' components)'
+                :'Recharts NOT loaded ✗';
+              showError(
+                'No renderable component found',null,
+                'Add a default export:\n\nexport default function MyComponent() {\n  return <div>Hello!</div>;\n}\n\nDiagnostics: React='+typeof React+' | ReactDOM='+typeof ReactDOM+' | '+rechartsStatus
+              );
+              loadingEl.classList.remove('active');
+              return;
+            }
+
+            var el=React.createElement(ErrorBoundary,null,React.createElement(Component));
+            if(reactRoot){
+              reactRoot.render(el);
+            }else{
+              reactRoot=ReactDOM.createRoot(appRoot);
+              reactRoot.render(el);
+            }
+
+            loadingEl.classList.remove('active');
+
+          }catch(err){
+            loadingEl.classList.remove('active');
+            var hint=null,msg=err.message||'';
+
+            if(msg.indexOf('require is not defined')!==-1){
+              hint='External npm packages cannot be used.\nAvailable: React (all hooks) + Recharts (all v2 chart components).';
+            }else if(msg.indexOf('is not defined')!==-1){
+              var dm=msg.match(/(\w+) is not defined/);
+              if(dm){
+                hint='"'+dm[1]+'" is undefined.';
+                if(RECHARTS_NAMES.indexOf(dm[1])!==-1){
+                  hint+='\nThis is a Recharts component. Recharts status: '+(typeof Recharts==='object'?'loaded ('+Object.keys(Recharts).length+' keys)':'NOT LOADED');
+                }else{
+                  hint+='\nIf it was imported from an external package, it\'s not available in the sandbox.';
+                }
+              }
+            }
+
+            showError(msg,err.stack,hint);
+          }
+        },10);
+      };
+    </script>
+  </body>
+</html>
